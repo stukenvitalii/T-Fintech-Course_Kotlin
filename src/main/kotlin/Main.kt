@@ -15,7 +15,7 @@ suspend fun main() {
     val client = KudaGoClient()
     val newsList = client.getNews()
 
-    val period = LocalDate.of(2024, 1, 1)..LocalDate.of(2024, 12, 31)
+    val period = LocalDate.of(2023, 1, 1)..LocalDate.of(2024, 12, 31)
     val mostRatedNews = getMostRatedNews(20, period)
 
     saveNews("src/main/resources/news.csv", newsList)
