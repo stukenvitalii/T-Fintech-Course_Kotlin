@@ -1,8 +1,8 @@
 package org.tinkoff
 
+import kotlinx.coroutines.runBlocking
+import org.tinkoff.client.FileClient
 import org.tinkoff.client.KudaGoClient
-import org.tinkoff.client.getMostRatedNews
-import org.tinkoff.client.saveNews
 import org.tinkoff.dsl.readme
 import java.io.File
 import java.time.Instant
@@ -11,14 +11,15 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-suspend fun main() {
+fun main() = runBlocking {
     val client = KudaGoClient()
+    val fileClient = FileClient()
     val newsList = client.getNews()
 
     val period = LocalDate.of(2023, 1, 1)..LocalDate.of(2024, 12, 31)
-    val mostRatedNews = getMostRatedNews(20, period)
+    val mostRatedNews = client.getMostRatedNews(20, period)
 
-    saveNews("src/main/resources/news.csv", newsList)
+    fileClient.saveNews("src/main/resources/news.csv", newsList)
 
     val readmeContent = readme {
         header(level = 1) { +"Most rated news: " }
@@ -30,8 +31,8 @@ suspend fun main() {
                 +"Publication date: ".plus(
                     LocalDateTime.ofInstant(Instant.ofEpochMilli(news.publicationDate * 1000), ZoneId.systemDefault())
                         .toLocalDate().format(
-                        DateTimeFormatter.ofPattern("dd/MM/yyyy")
-                    )
+                            DateTimeFormatter.ofPattern("dd/MM/yyyy")
+                        )
                 )
             }
             header(level = 4) { +"Favorites count: ".plus(news.favoritesCount!!) }
