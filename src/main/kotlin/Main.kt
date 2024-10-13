@@ -1,45 +1,57 @@
-package org.tinkoff
-
-import kotlinx.coroutines.runBlocking
-import org.tinkoff.client.FileClient
+import client.FileClient
+import io.ktor.client.call.NoTransformationFoundException
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import org.tinkoff.client.KudaGoClient
-import org.tinkoff.dsl.readme
-import java.io.File
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import org.tinkoff.dto.News
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
-fun main() = runBlocking {
-    val client = KudaGoClient()
-    val fileClient = FileClient()
-    val newsList = client.getNews()
+fun main(args: Array<String>) {
+    val kudaGoClient = KudaGoClient()
+    val fileClient = FileClient();
+    val countOfThreads: Int = 10
+    val executor = Executors.newFixedThreadPool(countOfThreads)
 
-    val period = LocalDate.of(2023, 1, 1)..LocalDate.of(2024, 12, 31)
-    val mostRatedNews = client.getMostRatedNews(20, period)
+    fileClient.clearFile("src/main/resources/news.csv")
 
-    fileClient.saveNews("src/main/resources/news.csv", newsList)
+    val channel = Channel<List<News>>()
 
-    val readmeContent = readme {
-        header(level = 1) { +"Most rated news: " }
+    val scope = CoroutineScope(Dispatchers.Default)
+    val tasks = (1..countOfThreads).map { i ->
+        scope.launch {
+            try {
+                for (page in 1..20) {
+                    if (page % countOfThreads == i - 1) {
+                        val requestContent = kudaGoClient.getNews(page = page)
 
-        for (news in mostRatedNews) {
-            header(level = 2) { +news.title }
-            header(level = 3) { +"Description: ".plus(news.description!!) }
-            header(level = 4) {
-                +"Publication date: ".plus(
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(news.publicationDate * 1000), ZoneId.systemDefault())
-                        .toLocalDate().format(
-                            DateTimeFormatter.ofPattern("dd/MM/yyyy")
-                        )
-                )
+                        if (!requestContent.isEmpty()) channel.send(requestContent)
+                    }
+                }
+            } catch (e: NoTransformationFoundException) {
+                println("Error: ${e.message}")
             }
-            header(level = 4) { +"Favorites count: ".plus(news.favoritesCount!!) }
-            header(level = 4) { +"Comments count: ".plus(news.commentsCount!!) }
-            dividingLine()
         }
     }
 
-    File("README.md").writeText(readmeContent.toString())
+    val readerJob = scope.launch {
+        while (true) {
+            val result = channel.receiveCatching().getOrNull()
+            if (result != null) {
+                fileClient.saveNews("src/main/resources/news.csv", result)
+            } else {
+                break
+            }
+        }
+    }
+
+    runBlocking {
+        tasks.forEach { it.join() }
+        channel.close()
+        readerJob.join()
+    }
+
+    executor.shutdown()
+    executor.awaitTermination(1, TimeUnit.HOURS)
+    println("Finished all threads")
 }
