@@ -1,4 +1,4 @@
-package org.tinkoff.client
+package client
 
 import io.ktor.client.*
 import io.ktor.client.call.*
