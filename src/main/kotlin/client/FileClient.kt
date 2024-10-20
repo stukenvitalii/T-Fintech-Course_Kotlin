@@ -1,4 +1,4 @@
-package org.tinkoff.client
+package client
 
 import org.slf4j.LoggerFactory
 import org.tinkoff.dto.News
@@ -25,7 +25,18 @@ class FileClient {
             "\"${news.id}\",\"${news.title}\",\"${news.publicationDate}\",\"${news.slug}\",\"${news.place}\",\"${news.description}\",\"${news.siteUrl}\",\"${news.favoritesCount}\",\"${news.commentsCount}\",\"${news.rating}\""
         }
 
-        File(path).writeText(csv)
-        logger.info("Saved ${news.size} news items to $path")
+        File(path).appendText(csv + "\n")
+        logger.info("Appended ${news.size} news items to $path")
+    }
+
+    fun clearFile(path: String) {
+        val filePath = Paths.get(path)
+
+        if (Files.exists(filePath)) {
+            File(path).writeText("")
+            logger.info("Cleared the file at $path")
+        } else {
+            logger.warn("File does not exist at $path, nothing to clear")
+        }
     }
 }

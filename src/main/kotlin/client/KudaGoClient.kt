@@ -1,4 +1,4 @@
-package org.tinkoff.client
+package client
 
 import io.ktor.client.*
 import io.ktor.client.call.*
@@ -17,10 +17,9 @@ import java.time.LocalDateTime
 import java.time.ZoneId
 
 class KudaGoClient {
-
     companion object {
         private const val BASE_URL_NEWS =
-            "https://kudago.com/public-api/v1.4/news/?fields=id,title,slug,description,publication_date,favorites_count,comments_count&expand=&order_by=&text_format=text&ids=&location=&actual_only=true&page=&page_size="
+            "https://kudago.com/public-api/v1.4/news/?fields=id,title,slug,description,publication_date,favorites_count,comments_count&expand=&text_format=text&actual_only=true"
         private const val PAGE_SIZE = 100
         private val logger = LoggerFactory.getLogger("KudaGoClient")
     }
@@ -34,18 +33,24 @@ class KudaGoClient {
     @Serializable
     data class NewsResponse(val results: List<News> = emptyList())
 
-    suspend fun getNews(count: Int = 100, page: Int = 1): List<News> {
+    suspend fun getNews(count: Int = 50, page: Int = 1): List<News> {
         logger.info("Fetching news: count=$count, page=$page")
 
-        val response: NewsResponse = client.get(BASE_URL_NEWS) {
+        val response = client.get(BASE_URL_NEWS) {
             parameter("page_size", count)
             parameter("location", "spb")
             parameter("order_by", "publication_date")
             parameter("page", page)
-        }.body() ?: throw Exception("Empty response")
+        }
 
-        logger.debug("Fetched ${response.results.size} news items")
-        return response.results
+        if (response.headers["Content-Type"]?.contains("application/json") == true) {
+            val newsResponse: NewsResponse = response.body()
+            logger.debug("Fetched ${newsResponse.results.size} news items")
+            return newsResponse.results
+        } else {
+            logger.warn("Skipped non-JSON response")
+            return emptyList()
+        }
     }
 
     suspend fun getMostRatedNews(count: Int, period: ClosedRange<LocalDate>): List<News> {

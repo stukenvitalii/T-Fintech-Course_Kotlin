@@ -1,45 +1,76 @@
-package org.tinkoff
+import client.FileClient
+import io.ktor.client.call.NoTransformationFoundException
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
+import org.slf4j.LoggerFactory
+import client.KudaGoClient
+import org.tinkoff.dto.News
+import java.util.concurrent.Executors
+import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
 
-import kotlinx.coroutines.runBlocking
-import org.tinkoff.client.FileClient
-import org.tinkoff.client.KudaGoClient
-import org.tinkoff.dsl.readme
-import java.io.File
-import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-
-fun main() = runBlocking {
-    val client = KudaGoClient()
+fun main(args: Array<String>) {
+    val logger = LoggerFactory.getLogger("Main")
+    val kudaGoClient = KudaGoClient()
     val fileClient = FileClient()
-    val newsList = client.getNews()
 
-    val period = LocalDate.of(2023, 1, 1)..LocalDate.of(2024, 12, 31)
-    val mostRatedNews = client.getMostRatedNews(20, period)
+    val startTime = System.currentTimeMillis()
+    logger.info("Program started")
+    fileClient.clearFile("src/main/resources/news.csv")
 
-    fileClient.saveNews("src/main/resources/news.csv", newsList)
+    val countOfThreads: Int = System.getenv("countOfThreads")?.toInt() ?: 10
+    val executor = Executors.newFixedThreadPool(countOfThreads)
 
-    val readmeContent = readme {
-        header(level = 1) { +"Most rated news: " }
+    val maxConcurrentRequests: Int = System.getenv("maxConcurrentRequests")?.toInt() ?: 4
+    val semaphore = Semaphore(maxConcurrentRequests)
 
-        for (news in mostRatedNews) {
-            header(level = 2) { +news.title }
-            header(level = 3) { +"Description: ".plus(news.description!!) }
-            header(level = 4) {
-                +"Publication date: ".plus(
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(news.publicationDate * 1000), ZoneId.systemDefault())
-                        .toLocalDate().format(
-                            DateTimeFormatter.ofPattern("dd/MM/yyyy")
-                        )
-                )
+    val channel = Channel<List<News>>()
+
+    val scope = CoroutineScope(Dispatchers.Default)
+    val tasks = (1..countOfThreads).map { i ->
+        scope.launch {
+            try {
+                for (page in 1..20) {
+                    if (page % countOfThreads == i - 1) {
+                        if (semaphore.tryAcquire()) {
+                            try {
+                                val requestContent = kudaGoClient.getNews(page = page)
+                                if (requestContent.isNotEmpty()) channel.send(requestContent)
+                            } finally {
+                                semaphore.release()
+                            }
+                        } else {
+                            logger.warn("API access locked for thread $i, retrying in 10 seconds...")
+                            delay(10000)
+                        }
+                    }
+                }
+            } catch (e: NoTransformationFoundException) {
+                println("Error: ${e.message}")
             }
-            header(level = 4) { +"Favorites count: ".plus(news.favoritesCount!!) }
-            header(level = 4) { +"Comments count: ".plus(news.commentsCount!!) }
-            dividingLine()
         }
     }
 
-    File("README.md").writeText(readmeContent.toString())
+    val readerJob = scope.launch {
+        while (true) {
+            val result = channel.receiveCatching().getOrNull()
+            if (result != null) {
+                fileClient.saveNews("src/main/resources/news.csv", result)
+            } else {
+                break
+            }
+        }
+    }
+
+    runBlocking {
+        tasks.forEach { it.join() }
+        channel.close()
+        readerJob.join()
+    }
+
+    executor.shutdown()
+    executor.awaitTermination(1, TimeUnit.HOURS)
+    logger.info("Finished all threads")
+    val endTime = System.currentTimeMillis()
+    logger.info("Total execution time: ${endTime - startTime} ms")
 }
