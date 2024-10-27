@@ -4,12 +4,12 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import org.slf4j.LoggerFactory
 import client.KudaGoClient
+import kotlinx.coroutines.sync.Semaphore
 import org.tinkoff.dto.News
 import java.util.concurrent.Executors
-import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 
-fun main(args: Array<String>) {
+fun main() {
     val logger = LoggerFactory.getLogger("Main")
     val kudaGoClient = KudaGoClient()
     val fileClient = FileClient()
@@ -18,10 +18,10 @@ fun main(args: Array<String>) {
     logger.info("Program started")
     fileClient.clearFile("src/main/resources/news.csv")
 
-    val countOfThreads: Int = System.getenv("countOfThreads")?.toInt() ?: 10
+    val countOfThreads = System.getenv("countOfThreads")?.toInt() ?: 10
     val executor = Executors.newFixedThreadPool(countOfThreads)
 
-    val maxConcurrentRequests: Int = System.getenv("maxConcurrentRequests")?.toInt() ?: 4
+    val maxConcurrentRequests = System.getenv("maxConcurrentRequests")?.toInt() ?: 4
     val semaphore = Semaphore(maxConcurrentRequests)
 
     val channel = Channel<List<News>>()
@@ -52,7 +52,7 @@ fun main(args: Array<String>) {
     }
 
     val readerJob = scope.launch {
-        while (true) {
+        while (currentCoroutineContext().isActive) {
             val result = channel.receiveCatching().getOrNull()
             if (result != null) {
                 fileClient.saveNews("src/main/resources/news.csv", result)
